@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Demo WebGIS Báo Cáo Sự Cố</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; }
+    #map { height: 90vh; width: 100%; }
+    .bar { padding: 12px; background: #333; color: white; display: flex; gap: 10px; align-items: center; }
+    button { padding: 8px 16px; cursor: pointer; border-radius: 4px; border: none; background: #007bff; color: white; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <button onclick="loadAll()">Hiển thị tất cả mốc</button>
+    <span>💡 Click vào vị trí bất kỳ trên bản đồ để thêm sự cố mới.</span>
+  </div>
+  <div id="map"></div>
+
+  <script>
+    const map = L.map('map').setView([21.0285, 105.8542], 13); // Tọa độ Hà Nội
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19,
+  attribution: 'Tiles &copy; Esri'
+}).addTo(map);
+
+    let layerGroup = L.layerGroup().addTo(map);
+
+    async function loadAll() {
+  layerGroup.clearLayers();
+  try {
+    const res = await fetch('http://localhost:3000/api/reports');
+    const geojson = await res.json();
+
+    L.geoJSON(geojson, {
+      // Vẽ điểm dưới dạng hình tròn màu đỏ cam
+      pointToLayer: (feature, latlng) => {
+        return L.circleMarker(latlng, {
+          radius: 8,
+          fillColor: "#ff4400",
+          color: "#ffffff",
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9
+        });
+      },
+      onEachFeature: (feature, layer) => {
+        layer.bindPopup(`
+          <b style="font-size: 14px; color: #d32f2f;">${feature.properties.title}</b><br>
+          <p style="margin: 5px 0 0 0;">${feature.properties.description || 'Không có mô tả'}</p>
+        `);
+      }
+    }).addTo(layerGroup);
+  } catch (err) {
+    console.error("Lỗi tải dữ liệu:", err);
+  }
+}
+
+    map.on('click', async (e) => {
+      const { lat, lng } = e.latlng;
+      const title = prompt("Nhập tiêu đề sự cố (ví dụ: Tắc đường, Ngập nước):");
+      if (!title) return;
+      const description = prompt("Nhập chi tiết mô tả:");
+
+      await fetch('http://localhost:3000/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description, lat, lng })
+      });
+
+      alert("Thêm mốc thành công!");
+      loadAll();
+    });
+
+    loadAll();
+  </script>
+</body>
+</html>
