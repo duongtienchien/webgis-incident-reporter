@@ -1,10 +1,13 @@
 {
-  "name": "webgis-backend",
+  "name": "webgis-incident-reporter",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "WebGIS báo cáo sự cố trên bản đồ Hà Nội (Express + PostGIS + Leaflet)",
+  "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node server.js",
+    "db:setup": "node scripts/setup-db.js",
+    "db:seed": "node scripts/setup-db.js --seed-only",
+    "db:reset-demo": "node scripts/setup-db.js --seed"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +15,7 @@
   "type": "commonjs",
   "dependencies": {
     "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
     "express": "^5.3.0",
     "pg": "^8.23.1"
   }

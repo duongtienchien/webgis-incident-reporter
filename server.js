@@ -1,110 +1,46 @@
+const path = require('path');
 const express = require('express');
-const { Pool } = require('pg');
 const cors = require('cors');
+const pool = require('./src/db');
+const { CATEGORIES } = require('./src/helpers');
 
 const app = express();
 app.use(cors());
-app.use(express.static('.'));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
-// Kết nối PostgreSQL trong Docker
-const pool = new Pool({
-  user: 'postgres',
-  host: '127.0.0.1', // Dùng IPv4 trực tiếp để không bị lầm sang IPv6 của Mac
-  database: 'webgis_db',
-  password: '12345',
-  port: 5433,        // Cổng mới 5433
+// Chỉ phục vụ thư mục public/ (KHÔNG phục vụ thư mục gốc,
+// nếu không ai cũng đọc được server.js, .env, mật khẩu DB...)
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ---------------- API ----------------
+app.use('/api/reports', require('./src/routes/reports'));
+app.use('/api/wards', require('./src/routes/wards'));
+
+// Danh sách loại sự cố cho frontend dựng form / bộ lọc
+app.get('/api/categories', (req, res) => {
+  res.json(Object.entries(CATEGORIES).map(([value, label]) => ({ value, label })));
 });
 
-/**
- * 1. API Tạo báo cáo sự cố (POST /api/reports)
- * Body: { title, description, lat, lng }
- */
-app.post('/api/reports', async (req, res) => {
-  try {
-    const { title, description, lat, lng } = req.body;
-
-    if (!title || lat === undefined || lng === undefined) {
-      return res.status(400).json({ error: 'Thiếu thông tin tiêu đề hoặc tọa độ' });
-    }
-
-    // ST_MakePoint nhận tham số (Longitude, Latitude)
-    const query = `
-      INSERT INTO reports (title, description, location)
-      VALUES ($1, $2, ST_SetSRID(ST_MakePoint($3, $4), 4326)::geography)
-      RETURNING id, title, description, ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng, created_at;
-    `;
-
-    const result = await pool.query(query, [title, description, lng, lat]);
-    res.status(201).json({ message: 'Tạo báo cáo thành công', data: result.rows[0] });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+// Kiểm tra server + DB còn sống
+app.get('/api/health', async (req, res) => {
+  const { rows } = await pool.query('SELECT postgis_version() AS postgis');
+  res.json({ status: 'ok', postgis: rows[0].postgis });
 });
 
-/**
- * 2. API Lấy danh sách điểm & Tìm kiếm bán kính (GET /api/reports)
- * Query params: ?lat=21.0285&lng=105.8542&radius=1000 (mét)
- */
-app.get('/api/reports', async (req, res) => {
-  try {
-    const { lat, lng, radius } = req.query;
+app.use('/api', (req, res) => res.status(404).json({ error: 'Không có API này' }));
 
-    let query = '';
-    let values = [];
-
-    if (lat && lng && radius) {
-      // Truy vấn không gian tìm trong bán kính R mét bằng ST_DWithin
-      query = `
-        SELECT id, title, description, created_at,
-               ST_Y(location::geometry) AS lat,
-               ST_X(location::geometry) AS lng
-        FROM reports
-        WHERE ST_DWithin(
-          location,
-          ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography,
-          $3
-        )
-        ORDER BY created_at DESC;
-      `;
-      values = [parseFloat(lng), parseFloat(lat), parseFloat(radius)];
-    } else {
-      query = `
-        SELECT id, title, description, created_at,
-               ST_Y(location::geometry) AS lat,
-               ST_X(location::geometry) AS lng
-        FROM reports
-        ORDER BY created_at DESC;
-      `;
-    }
-
-    const result = await pool.query(query, values);
-
-    // Chuyển sang chuẩn GeoJSON cho Frontend WebGIS
-    const geojson = {
-      type: "FeatureCollection",
-      features: result.rows.map(row => ({
-        type: "Feature",
-        geometry: {
-          type: "Point",
-          coordinates: [row.lng, row.lat]
-        },
-        properties: {
-          id: row.id,
-          title: row.title,
-          description: row.description,
-          created_at: row.created_at
-        }
-      }))
-    };
-
-    res.json(geojson);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+// Xử lý lỗi tập trung. Express 5 tự chuyển lỗi của hàm async tới đây.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON không hợp lệ' });
+  if (err.status && err.status < 500) return res.status(err.status).json({ error: err.message }); // lỗi do client
+  console.error(err);
+  res.status(500).json({ error: 'Lỗi máy chủ' }); // không lộ chi tiết lỗi SQL ra ngoài
 });
 
-const PORT = 3000;
-app.listen(PORT, () => console.log(`WebGIS Server đang chạy tại http://localhost:${PORT}`));
+const PORT = Number(process.env.PORT || 3000);
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`WebGIS Server đang chạy tại http://localhost:${PORT}`));
+}
+
+module.exports = app;

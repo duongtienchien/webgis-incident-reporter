@@ -1,0 +1,18 @@
+# Chạy PostgreSQL + PostGIS bằng Docker:  docker compose up -d
+# Cổng 5433 trên máy -> 5432 trong container (giống cấu hình cũ của nhóm).
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    platform: linux/amd64   # Mac chip M1/M2 vẫn chạy được (qua giả lập)
+    container_name: webgis_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: webgis_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
